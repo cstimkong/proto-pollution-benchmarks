@@ -1,0 +1,14 @@
+/**
+ * Create a new context
+ * @function create
+ */
+'use strict';
+
+const Objnest = require('./objnest');
+
+/** @lends create */
+function create(config) {
+  return new Objnest(config);
+}
+module.exports = create;
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJuYW1lcyI6W10sInNvdXJjZVJvb3QiOiIuLi8uLi9saWIiLCJzb3VyY2VzIjpbImNyZWF0ZS5qcyJdLCJzb3VyY2VzQ29udGVudCI6WyIvKipcbiAqIENyZWF0ZSBhIG5ldyBjb250ZXh0XG4gKiBAZnVuY3Rpb24gY3JlYXRlXG4gKi9cbid1c2Ugc3RyaWN0J1xuXG5jb25zdCBPYmpuZXN0ID0gcmVxdWlyZSgnLi9vYmpuZXN0JylcblxuLyoqIEBsZW5kcyBjcmVhdGUgKi9cbmZ1bmN0aW9uIGNyZWF0ZSAoY29uZmlnKSB7XG4gIHJldHVybiBuZXcgT2JqbmVzdChjb25maWcpXG59XG5cbm1vZHVsZS5leHBvcnRzID0gY3JlYXRlIl0sIm1hcHBpbmdzIjoiQUFBQTtBQUNBO0FBQ0E7QUFDQTtBQUNBLFlBQVk7O0FBRVosTUFBTSxPQUFPLEdBQUcsT0FBTyxDQUFDLFdBQVcsQ0FBQzs7QUFFcEM7QUFDQSxTQUFTLE1BQU0sQ0FBRSxNQUFNLEVBQUU7RUFDdkIsT0FBTyxJQUFJLE9BQU8sQ0FBQyxNQUFNLENBQUM7QUFDNUI7QUFFQSxNQUFNLENBQUMsT0FBTyxHQUFHLE1BQU0iLCJpZ25vcmVMaXN0IjpbXX0=
