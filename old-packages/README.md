@@ -1,4 +1,4 @@
 
 # Prototype Pollution Packages
 
-This directory contains the curated datasets from Ferreira et al.'s works. Each sub-directory is a NPM package. Note: Install the dependencies before using the package.
+This directory contains the packages with prototype pollution vulnerability from [prior works](https://github.com/cstimkong/forecast#references). You should install the dependencies before detecting prototype pollution for these packages.

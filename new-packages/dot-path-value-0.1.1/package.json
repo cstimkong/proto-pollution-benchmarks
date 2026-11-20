@@ -1,0 +1,78 @@
+{
+  "name": "dot-path-value",
+  "version": "0.1.1",
+  "description": "Safely get deep nested properties using dot notation",
+  "author": "German Makarov <cxdcjs@gmail.com>",
+  "private": false,
+  "homepage": "https://github.com/g-makarov/dot-path-value",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/g-makarov/dot-path-value.git"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/g-makarov/dot-path-value/issues"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.cts",
+  "unpkg": "./dist/index.umd.js",
+  "jsdelivr": "./dist/index.umd.js",
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint src",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "check:exports": "publint && attw --pack .",
+    "prepublishOnly": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build && pnpm run check:exports",
+    "postversion": "git push && git push --tags"
+  },
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "src/index.ts",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "packageManager": "pnpm@11.6.0",
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "oxfmt": "^0.61.0",
+    "oxlint": "^1.76.0",
+    "publint": "^0.3.22",
+    "tsdown": "^0.22.14",
+    "typescript": "^5.6.2",
+    "vitest": "^4.1.10"
+  },
+  "keywords": [
+    "dot",
+    "path",
+    "get",
+    "value",
+    "deep",
+    "nested",
+    "object",
+    "property",
+    "typescript",
+    "type",
+    "access",
+    "notation",
+    "array",
+    "set",
+    "update",
+    "change"
+  ]
+}

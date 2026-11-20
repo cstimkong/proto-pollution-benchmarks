@@ -1,0 +1,712 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const util_js_1 = require("./util.js");
+const REMOVED_MARKER = '______MONGO_OBJECT_REMOVED______';
+class MongoObject {
+    _affectedKeys = Object.create(null);
+    _affectedPositions = new Map();
+    _arrayItemPositions = new Set();
+    _blackboxKeys = [];
+    _genericAffectedKeys = Object.create(null);
+    _obj;
+    _objectPositions = new Set();
+    _parentPositions = new Set();
+    _positionsByGenericKey = Object.create(null);
+    _positionsInsideArrays = new Set();
+    _positionsThatCreateGenericKey = Object.create(null);
+    /*
+     * @constructor
+     * @param obj
+     * @param blackboxKeys A list of the names of keys that shouldn't be traversed
+     * @returns {undefined}
+     *
+     * Creates a new MongoObject instance. The object passed as the first argument
+     * will be modified in place by calls to instance methods. Also, immediately
+     * upon creation of the instance, the object will have any `undefined` keys
+     * removed recursively.
+     */
+    constructor(obj, blackboxKeys = []) {
+        this._obj = obj;
+        this._blackboxKeys = blackboxKeys;
+        this._reParseObj();
+    }
+    _reParseObj() {
+        const blackboxKeys = new Set(this._blackboxKeys);
+        this._affectedKeys = Object.create(null);
+        this._affectedPositions.clear();
+        this._genericAffectedKeys = Object.create(null);
+        this._positionsByGenericKey = Object.create(null);
+        this._positionsThatCreateGenericKey = Object.create(null);
+        this._parentPositions.clear();
+        this._positionsInsideArrays.clear();
+        this._objectPositions.clear();
+        this._arrayItemPositions.clear();
+        function parseObj(self, val, currentPosition, affectedKey, operator, adjusted, isWithinArray) {
+            // Adjust for first-level modifier operators
+            if (operator == null && affectedKey?.substring(0, 1) === '$') {
+                operator = affectedKey;
+                affectedKey = null;
+            }
+            let affectedKeyIsBlackBox = false;
+            let stop = false;
+            if (affectedKey != null) {
+                // Adjust for $push and $addToSet and $pull and $pop
+                if (adjusted !== true) {
+                    if (operator === '$push' ||
+                        operator === '$addToSet' ||
+                        operator === '$pop') {
+                        // Adjust for $each
+                        // We can simply jump forward and pretend like the $each array
+                        // is the array for the field. This has the added benefit of
+                        // skipping past any $slice, which we also don't care about.
+                        if ((0, util_js_1.isBasicObject)(val) && '$each' in val) {
+                            val = val.$each;
+                            // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+                            currentPosition = `${currentPosition}[$each]`;
+                        }
+                        else {
+                            affectedKey = `${affectedKey}.0`;
+                        }
+                        adjusted = true;
+                    }
+                    else if (operator === '$pull') {
+                        affectedKey = `${affectedKey}.0`;
+                        if ((0, util_js_1.isBasicObject)(val)) {
+                            stop = true;
+                        }
+                        adjusted = true;
+                    }
+                }
+                // Make generic key
+                const affectedKeyGeneric = (0, util_js_1.makeKeyGeneric)(affectedKey);
+                if (affectedKeyGeneric === null)
+                    throw new Error(`Failed to get generic key for key "${affectedKey}"`);
+                // Determine whether affected key should be treated as a black box
+                affectedKeyIsBlackBox = affectedKeyGeneric !== null &&
+                    blackboxKeys.has(affectedKeyGeneric);
+                // Mark that this position affects this generic and non-generic key
+                if (currentPosition != null) {
+                    self._affectedKeys[currentPosition] = affectedKey;
+                    self._genericAffectedKeys[currentPosition] = affectedKeyGeneric;
+                    const positionInfo = {
+                        key: affectedKey,
+                        operator: operator ?? null,
+                        position: currentPosition
+                    };
+                    if (self._positionsByGenericKey[affectedKeyGeneric] == null)
+                        self._positionsByGenericKey[affectedKeyGeneric] = [];
+                    self._positionsByGenericKey[affectedKeyGeneric].push(positionInfo);
+                    // Operators other than $unset will cause ancestor object keys to
+                    // be auto-created.
+                    if (operator != null && operator !== '$unset') {
+                        MongoObject.objectsThatGenericKeyWillCreate(affectedKeyGeneric).forEach((objGenericKey) => {
+                            if (self._positionsThatCreateGenericKey[objGenericKey] === undefined) {
+                                self._positionsThatCreateGenericKey[objGenericKey] = [];
+                            }
+                            self._positionsThatCreateGenericKey[objGenericKey].push(positionInfo);
+                        });
+                    }
+                    // If we're within an array, mark this position so we can omit it from flat docs
+                    if (isWithinArray === true)
+                        self._positionsInsideArrays.add(currentPosition);
+                }
+            }
+            if (stop)
+                return;
+            // Loop through arrays
+            if (Array.isArray(val) && val.length > 0) {
+                if (currentPosition != null) {
+                    // Mark positions with arrays that should be ignored when we want endpoints only
+                    self._parentPositions.add(currentPosition);
+                }
+                // Loop
+                val.forEach((v, i) => {
+                    if (currentPosition != null)
+                        self._arrayItemPositions.add(`${currentPosition}[${i}]`);
+                    parseObj(self, v, currentPosition != null ? `${currentPosition}[${i}]` : String(i), 
+                    // eslint-disable-next-line @typescript-eslint/restrict-template-expressions
+                    `${affectedKey}.${i}`, operator, adjusted, true);
+                });
+            }
+            else if (((0, util_js_1.isBasicObject)(val) && !affectedKeyIsBlackBox) ||
+                currentPosition == null) {
+                // Loop through object keys, only for basic objects,
+                // but always for the passed-in object, even if it
+                // is a custom object.
+                if (currentPosition != null && !(0, util_js_1.isEmpty)(val)) {
+                    // Mark positions with objects that should be ignored when we want endpoints only
+                    self._parentPositions.add(currentPosition);
+                    // Mark positions with objects that should be left out of flat docs.
+                    self._objectPositions.add(currentPosition);
+                }
+                // Loop
+                Object.keys(val).forEach((k) => {
+                    const v = val[k];
+                    if (v === undefined) {
+                        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+                        delete val[k];
+                    }
+                    else if (k !== '$slice') {
+                        parseObj(self, v, currentPosition != null ? `${currentPosition}[${k}]` : k, (0, util_js_1.appendAffectedKey)(affectedKey, k), operator, adjusted, isWithinArray);
+                    }
+                });
+            }
+        }
+        parseObj(this, this._obj);
+        // Preserve the original property enumeration order, including integer keys,
+        // and the first position when multiple operators affect the same key.
+        Object.keys(this._affectedKeys).forEach((position) => {
+            const key = this._affectedKeys[position];
+            if (key != null && !this._affectedPositions.has(key)) {
+                this._affectedPositions.set(key, position);
+            }
+        });
+    }
+    /**
+     * @param func
+     * @param [options]
+     * @param [options.endPointsOnly=true] - Only call function for endpoints and not for nodes that contain other nodes
+     * @returns
+     *
+     * Runs a function for each endpoint node in the object tree, including all items in every array.
+     * The function arguments are
+     * (1) the value at this node
+     * (2) a string representing the node position
+     * (3) the representation of what would be changed in mongo, using mongo dot notation
+     * (4) the generic equivalent of argument 3, with '$' instead of numeric pieces
+     */
+    forEachNode(func, { endPointsOnly = true } = {}) {
+        if (typeof func !== 'function')
+            throw new Error('filter requires a loop function');
+        const updatedValues = Object.create(null);
+        Object.keys(this._affectedKeys).forEach((position) => {
+            if (endPointsOnly && this._parentPositions.has(position))
+                return; // Only endpoints
+            func.call({
+                value: this.getValueForPosition(position),
+                isArrayItem: this._arrayItemPositions.has(position),
+                operator: (0, util_js_1.extractOp)(position),
+                position,
+                key: this._affectedKeys[position],
+                genericKey: this._genericAffectedKeys[position],
+                updateValue: (newVal) => {
+                    updatedValues[position] = newVal;
+                },
+                remove: () => {
+                    updatedValues[position] = undefined;
+                }
+            });
+        });
+        // Callbacks above retain synchronous indexes. Only the queued writes below
+        // are batched; their positions and values no longer depend on those indexes.
+        let needsReparse = false;
+        let completed = false;
+        try {
+            Object.keys(updatedValues).forEach((position) => {
+                if (this._setValueForPosition(position, updatedValues[position]))
+                    needsReparse = true;
+            });
+            completed = true;
+        }
+        finally {
+            // A throwing write may have changed an ancestor before failing.
+            if (needsReparse || !completed)
+                this._reParseObj();
+        }
+    }
+    getValueForPosition(position) {
+        const subkeys = position.split('[');
+        let current = this._obj;
+        const ln = subkeys.length;
+        for (let i = 0; i < ln; i++) {
+            let subkey = subkeys[i];
+            // If the subkey ends in ']', remove the ending
+            if (subkey.slice(-1) === ']')
+                subkey = subkey.slice(0, -1);
+            if (!Object.hasOwn(current, subkey))
+                return;
+            current = current[subkey];
+            if (!Array.isArray(current) && !(0, util_js_1.isBasicObject)(current) && i < ln - 1)
+                return;
+        }
+        if (current === REMOVED_MARKER)
+            return;
+        return current;
+    }
+    /**
+     * @param position
+     * @param value
+     */
+    setValueForPosition(position, value) {
+        if (this._setValueForPosition(position, value))
+            this._reParseObj();
+    }
+    /** Apply a write and report whether indexes need rebuilding. */
+    _setValueForPosition(position, value) {
+        const subkeys = position.split('[').map((piece) => piece.endsWith(']') ? piece.slice(0, -1) : piece);
+        // Validate the entire path before creating or changing any properties.
+        if (subkeys.some(util_js_1.isUnsafeKeyPiece))
+            return false;
+        let current = this._obj;
+        const ln = subkeys.length;
+        let createdObjectsOrArrays = false;
+        let replacedObjectOrArray = false;
+        const isNewPosition = !Object.hasOwn(this._affectedKeys, position);
+        const previousAffectedKey = this._affectedKeys[position];
+        let affectedKey = '';
+        for (let i = 0; i < ln; i++) {
+            const subkey = subkeys[i];
+            // We don't store modifiers
+            if (subkey.length > 0 && subkey.substring(0, 1) !== '$') {
+                affectedKey = (0, util_js_1.appendAffectedKey)(affectedKey, subkey);
+            }
+            // If we've reached the key in the object tree that needs setting or
+            // deleting, do it.
+            if (i === ln - 1) {
+                const previousValue = Object.hasOwn(current, subkey) ? current[subkey] : undefined;
+                replacedObjectOrArray = Array.isArray(previousValue) || (0, util_js_1.isBasicObject)(previousValue);
+                // If value is undefined, delete the property
+                if (value === undefined) {
+                    if (Array.isArray(current)) {
+                        // We can't just delete it because indexes in the position strings will be off
+                        // We will mark it uniquely and then parse this elsewhere
+                        current[Number(subkey)] = REMOVED_MARKER;
+                    }
+                    else {
+                        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
+                        delete current[subkey];
+                    }
+                }
+                else {
+                    current[subkey] = value;
+                }
+                this._affectedKeys[position] = affectedKey;
+            }
+            else {
+                // Otherwise attempt to keep moving deeper into the object.
+                // If we're setting (as opposed to deleting) a key and we hit a place
+                // in the ancestor chain where the keys are not yet created, create them.
+                if ((!Object.hasOwn(current, subkey) || current[subkey] === undefined) && value !== undefined) {
+                    // See if the next piece is a number
+                    const nextPiece = subkeys[i + 1];
+                    current[subkey] = Number.isNaN(parseInt(nextPiece, 10)) ? {} : [];
+                    createdObjectsOrArrays = true;
+                }
+                else if (Object.hasOwn(current, subkey) && (0, util_js_1.isEmpty)(current[subkey])) {
+                    // Empty containers were endpoints until this mutation.
+                    createdObjectsOrArrays = true;
+                }
+                // Move deeper into the object
+                if (!Object.hasOwn(current, subkey))
+                    return createdObjectsOrArrays;
+                current = current[subkey];
+                // If we can go no further, then quit
+                if (!Array.isArray(current) && !(0, util_js_1.isBasicObject)(current) && i < ln - 1)
+                    return createdObjectsOrArrays;
+            }
+        }
+        // Structural changes require refreshing all indexes and endpoint metadata.
+        return createdObjectsOrArrays ||
+            replacedObjectOrArray ||
+            isNewPosition ||
+            previousAffectedKey !== affectedKey ||
+            value === undefined ||
+            Array.isArray(value) ||
+            (0, util_js_1.isBasicObject)(value);
+    }
+    removeValueForPosition(position) {
+        this.setValueForPosition(position, undefined);
+    }
+    getKeyForPosition(position) {
+        return this._affectedKeys[position];
+    }
+    getGenericKeyForPosition(position) {
+        return this._genericAffectedKeys[position];
+    }
+    /**
+     * @param key Non-generic key
+     * @returns The value and operator of the requested non-generic key.
+     *   Example: {value: 1, operator: "$pull"}
+     */
+    getInfoForKey(key) {
+        // Get the info
+        const position = this.getPositionForKey(key);
+        if (position !== undefined) {
+            return {
+                value: this.getValueForPosition(position),
+                operator: (0, util_js_1.extractOp)(position)
+            };
+        }
+        // If we haven't returned yet, check to see if there is an array value
+        // corresponding to this key
+        // We find the first item within the array, strip the last piece off the
+        // position string, and then return whatever is at that new position in
+        // the original object.
+        const positions = this.getPositionsForGenericKey(`${key}.$`);
+        for (let index = 0; index < positions.length; index++) {
+            const pos = positions[index];
+            let value = this.getValueForPosition(pos);
+            if (value === undefined) {
+                const parentPosition = pos.slice(0, pos.lastIndexOf('['));
+                value = this.getValueForPosition(parentPosition);
+            }
+            if (value !== undefined) {
+                return {
+                    value,
+                    operator: (0, util_js_1.extractOp)(pos)
+                };
+            }
+        }
+    }
+    /**
+     * @method MongoObject.getPositionForKey
+     * @param {String} key - Non-generic key
+     * @returns The position string for the place in the object that
+     *   affects the requested non-generic key.
+     *   Example: 'foo[bar][0]'
+     */
+    getPositionForKey(key) {
+        return this._affectedPositions.get(key);
+    }
+    /**
+     * @param genericKey Generic key
+     * @returns An array of position strings for the places in the object that
+     *   affect the requested generic key.
+     *   Example: ['foo[bar][0]']
+     */
+    getPositionsForGenericKey(genericKey) {
+        return this._getPositionsInfoForGenericKey(genericKey).map((info) => info.position);
+    }
+    /**
+     * @param genericKey Generic key
+     * @returns An array of position info for the places in the object that
+     *   affect the requested generic key.
+     */
+    getPositionsInfoForGenericKey(genericKey) {
+        return this._getPositionsInfoForGenericKey(genericKey).map((info) => ({
+            value: this.getValueForPosition(info.position),
+            ...info
+        }));
+    }
+    _getPositionsInfoForGenericKey(genericKey) {
+        const positions = this._positionsByGenericKey[genericKey];
+        if (positions != null && positions.length > 0)
+            return positions;
+        return this._positionsByGenericKey[`${genericKey}.$`] ?? [];
+    }
+    getPositionsThatCreateGenericKey(genericKey) {
+        return this._positionsThatCreateGenericKey[genericKey] ?? [];
+    }
+    /**
+     * @deprecated Use getInfoForKey
+     * @param {String} key - Non-generic key
+     * @returns The value of the requested non-generic key
+     */
+    getValueForKey(key) {
+        const position = this.getPositionForKey(key);
+        if (position != null)
+            return this.getValueForPosition(position);
+    }
+    /**
+     * Adds `key` with value `val` under operator `op` to the source object.
+     *
+     * @param key Key to set
+     * @param val Value to give this key
+     * @param op Operator under which to set it, or `null` for a non-modifier object
+     * @returns
+     */
+    addKey(key, val, op) {
+        const position = op != null ? `${op}[${key}]` : (0, util_js_1.keyToPosition)(key);
+        this.setValueForPosition(position, val);
+    }
+    /**
+     * Removes anything that affects any of the generic keys in the list
+     */
+    removeGenericKeys(keys) {
+        const keysToRemove = new Set(keys);
+        Object.getOwnPropertyNames(this._genericAffectedKeys).forEach((position) => {
+            const genericKey = this._genericAffectedKeys[position];
+            if (genericKey !== null && keysToRemove.has(genericKey)) {
+                this.removeValueForPosition(position);
+            }
+        });
+    }
+    /**
+     * Removes anything that affects the requested generic key
+     */
+    removeGenericKey(key) {
+        Object.getOwnPropertyNames(this._genericAffectedKeys).forEach((position) => {
+            if (this._genericAffectedKeys[position] === key) {
+                this.removeValueForPosition(position);
+            }
+        });
+    }
+    /**
+     * Removes anything that affects the requested non-generic key
+     */
+    removeKey(key) {
+        // We don't use getPositionForKey here because we want to be sure to
+        // remove for all positions if there are multiple.
+        Object.getOwnPropertyNames(this._affectedKeys).forEach((position) => {
+            if (this._affectedKeys[position] === key) {
+                this.removeValueForPosition(position);
+            }
+        });
+    }
+    /**
+     * Removes anything that affects any of the non-generic keys in the list
+     */
+    removeKeys(keys) {
+        keys.forEach((key) => this.removeKey(key));
+    }
+    /**
+     * Passes all affected keys to a test function, which
+     * should return false to remove whatever is affecting that key
+     */
+    filterGenericKeys(test) {
+        const checkedKeys = new Set();
+        const keysToRemove = [];
+        Object.getOwnPropertyNames(this._genericAffectedKeys).forEach((position) => {
+            const genericKey = this._genericAffectedKeys[position];
+            if (genericKey !== null && !checkedKeys.has(genericKey)) {
+                checkedKeys.add(genericKey);
+                if (genericKey != null && !test(genericKey)) {
+                    keysToRemove.push(genericKey);
+                }
+            }
+        });
+        keysToRemove.forEach((key) => this.removeGenericKey(key));
+    }
+    /**
+     * Sets the value for every place in the object that affects
+     * the requested non-generic key
+     */
+    setValueForKey(key, val) {
+        // We don't use getPositionForKey here because we want to be sure to
+        // set the value for all positions if there are multiple.
+        Object.getOwnPropertyNames(this._affectedKeys).forEach((position) => {
+            if (this._affectedKeys[position] === key) {
+                this.setValueForPosition(position, val);
+            }
+        });
+    }
+    /**
+     * Sets the value for every place in the object that affects
+     * the requested generic key
+     */
+    setValueForGenericKey(key, val) {
+        // We don't use getPositionForKey here because we want to be sure to
+        // set the value for all positions if there are multiple.
+        Object.getOwnPropertyNames(this._genericAffectedKeys).forEach((position) => {
+            if (this._genericAffectedKeys[position] === key) {
+                this.setValueForPosition(position, val);
+            }
+        });
+    }
+    removeArrayItems() {
+        // Traverse and pull out removed array items at this point
+        function traverse(obj) {
+            (0, util_js_1.each)(obj, (val, indexOrProp) => {
+                // Move deeper into the object
+                const next = obj[indexOrProp];
+                // If we can go no further, then quit
+                if ((0, util_js_1.isBasicObject)(next)) {
+                    traverse(next);
+                }
+                else if (Array.isArray(next)) {
+                    obj[indexOrProp] = next.filter((item) => item !== REMOVED_MARKER);
+                    traverse(obj[indexOrProp]);
+                }
+                return undefined;
+            });
+        }
+        traverse(this._obj);
+        this._reParseObj();
+    }
+    /**
+     * Get the source object, potentially modified by other method calls on this
+     * MongoObject instance.
+     */
+    getObject() {
+        return this._obj;
+    }
+    /**
+     * Gets a flat object based on the MongoObject instance.
+     * In a flat object, the key is the name of the non-generic affectedKey,
+     * with mongo dot notation if necessary, and the value is the value for
+     * that key.
+     *
+     * With `keepArrays: true`, we don't flatten within arrays. Currently
+     * MongoDB does not see a key such as `a.0.b` and automatically assume
+     * an array. Instead it would create an object with key '0' if there
+     * wasn't already an array saved as the value of `a`, which is rarely
+     * if ever what we actually want. To avoid this confusion, we
+     * set entire arrays.
+     */
+    getFlatObject({ keepArrays = false } = {}) {
+        const newObj = {};
+        Object.keys(this._affectedKeys).forEach((position) => {
+            const affectedKey = this._affectedKeys[position];
+            if (typeof affectedKey === 'string' &&
+                ((keepArrays &&
+                    !this._positionsInsideArrays.has(position) &&
+                    !this._objectPositions.has(position)) ||
+                    (!keepArrays &&
+                        !this._parentPositions.has(position)))) {
+                Object.defineProperty(newObj, affectedKey, {
+                    configurable: true,
+                    enumerable: true,
+                    writable: true,
+                    value: this.getValueForPosition(position)
+                });
+            }
+        });
+        return newObj;
+    }
+    /**
+     * @method MongoObject.affectsKey
+     * @param key Key to test
+     * @returns True if the non-generic key is affected by this object
+     */
+    affectsKey(key) {
+        return this.getPositionForKey(key) !== undefined;
+    }
+    /**
+     * @method MongoObject.affectsGenericKey
+     * @param key Key to test
+     * @returns True if the generic key is affected by this object
+     */
+    affectsGenericKey(key) {
+        const positions = Object.getOwnPropertyNames(this._genericAffectedKeys);
+        for (let index = 0; index < positions.length; index++) {
+            const position = positions[index];
+            if (this._genericAffectedKeys[position] === key)
+                return true;
+        }
+        return false;
+    }
+    /**
+     * @method MongoObject.affectsGenericKeyImplicit
+     * @param key Key to test
+     * @returns Like affectsGenericKey, but will return true if a child key is affected
+     */
+    affectsGenericKeyImplicit(key) {
+        const positions = Object.getOwnPropertyNames(this._genericAffectedKeys);
+        for (let index = 0; index < positions.length; index++) {
+            const position = positions[index];
+            const affectedKey = this._genericAffectedKeys[position];
+            if (affectedKey !== null &&
+                (0, util_js_1.genericKeyAffectsOtherGenericKey)(key, affectedKey))
+                return true;
+        }
+        return false;
+    }
+    /* STATIC */
+    static _keyToPosition = util_js_1.keyToPosition;
+    static cleanNulls = util_js_1.cleanNulls;
+    static expandKey = util_js_1.expandKey;
+    static isBasicObject = util_js_1.isBasicObject;
+    static makeKeyGeneric = util_js_1.makeKeyGeneric;
+    static reportNulls = util_js_1.reportNulls;
+    /**
+     * This is different from MongoObject.prototype.getKeyForPosition in that
+     * this method does not depend on the requested position actually being
+     * present in any particular MongoObject.
+     *
+     * @method MongoObject._positionToKey
+     * @param position
+     * @returns The key that this position in an object would affect.
+     */
+    static _positionToKey(position) {
+        // XXX Probably a better way to do this, but this is
+        // foolproof for now.
+        const mDoc = new MongoObject({});
+        mDoc.setValueForPosition(position, 1); // Value doesn't matter
+        return mDoc.getKeyForPosition(position);
+    }
+    /**
+     * @method MongoObject.docToModifier
+     * @public
+     * @param doc - An object to be converted into a MongoDB modifier
+     * @param [options] Options
+     * @returns A MongoDB modifier.
+     *
+     * Converts an object into a modifier by flattening it, putting keys with
+     * null, undefined, and empty string values into `modifier.$unset`, and
+     * putting the rest of the keys into `modifier.$set`.
+     */
+    static docToModifier(doc, { keepArrays = false, keepEmptyStrings = false } = {}) {
+        // Flatten doc
+        const mDoc = new MongoObject(doc);
+        let flatDoc = mDoc.getFlatObject({ keepArrays });
+        // Get a list of null, undefined, and empty string values so we can unset them instead
+        const nulls = (0, util_js_1.reportNulls)(flatDoc, keepEmptyStrings);
+        flatDoc = (0, util_js_1.cleanNulls)(flatDoc, false, keepEmptyStrings);
+        const modifier = {};
+        if (!(0, util_js_1.isEmpty)(flatDoc))
+            modifier.$set = flatDoc;
+        if (!(0, util_js_1.isEmpty)(nulls))
+            modifier.$unset = nulls;
+        return modifier;
+    }
+    static objAffectsKey(obj, key) {
+        const mDoc = new MongoObject(obj);
+        return mDoc.affectsKey(key);
+    }
+    /**
+     * @param genericKey Generic key
+     * @return Array of other generic keys that would be created by this generic key
+     */
+    static objectsThatGenericKeyWillCreate(genericKey) {
+        const objs = [];
+        do {
+            const lastDotPosition = genericKey.lastIndexOf('.');
+            genericKey = lastDotPosition === -1 ? '' : genericKey.slice(0, lastDotPosition);
+            if (genericKey.length > 0 && !genericKey.endsWith('.$'))
+                objs.push(genericKey);
+        } while (genericKey.length > 0);
+        return objs;
+    }
+    /**
+     * Takes a flat object and returns an expanded version of it.
+     */
+    static expandObj(doc) {
+        const newDoc = {};
+        Object.keys(doc).forEach((key) => {
+            const val = doc[key];
+            const subkeys = key.split('.');
+            // Prevent prototype pollution
+            if (subkeys.some(util_js_1.isUnsafeKeyPiece))
+                return;
+            const subkeylen = subkeys.length;
+            let current = newDoc;
+            for (let i = 0; i < subkeylen; i++) {
+                const subkey = subkeys[i];
+                const existingValue = Object.hasOwn(current, subkey) ? current[subkey] : undefined;
+                if (existingValue !== undefined &&
+                    !(0, util_js_1.isObject)(existingValue)) {
+                    break; // Already set for some reason; leave it alone
+                }
+                if (i === subkeylen - 1) {
+                    // Last iteration; time to set the value
+                    current[subkey] = val;
+                }
+                else {
+                    // See if the next piece is a number
+                    const nextPiece = subkeys[i + 1];
+                    const nextPieceInt = parseInt(nextPiece, 10);
+                    if (Number.isNaN(nextPieceInt) && !(0, util_js_1.isObject)(existingValue)) {
+                        current[subkey] = {};
+                    }
+                    else if (!Number.isNaN(nextPieceInt) &&
+                        !Array.isArray(existingValue)) {
+                        current[subkey] = [];
+                    }
+                }
+                current = current[subkey];
+            }
+        });
+        return newDoc;
+    }
+}
+exports.default = MongoObject;
