@@ -1,0 +1,36 @@
+{
+	"name" : "underscore-keypath",
+	"version" : "0.9.3",
+	"author" : "Jeeeyul Lee <jeeeyul@gmail.com>",
+	"description" : "Adds Key-Path mechanism extensions for underscore",
+	"main" : "./lib/underscore-keypath.js",
+	"license" : "EPL-1.0",
+
+	"repository" : {
+		"type" : "git",
+		"url" : "https://github.com/jeeeyul/underscore-keypath.git"
+	},
+
+	"keywords" : [
+		"underscore",
+		"objective-c",
+		"keypath"
+	],
+
+	"dependencies" : {
+		"underscore" : "*"
+	},
+
+	"devDependencies" : {
+		"mocha" : "*",
+		"should" : "*",
+		"grunt": "*",
+		"grunt-contrib-jshint": "*",
+		"grunt-contrib-uglify": "*",
+		"grunt-mocha-test" : "*"
+	},
+
+	"scripts" : {
+		"test" : "grunt"
+	}
+}

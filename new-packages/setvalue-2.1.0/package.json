@@ -1,0 +1,51 @@
+{
+  "name": "setvalue",
+  "version": "2.1.0",
+  "description": "Type-safe library for reading, writing, or checking, nested values of an object",
+  "keywords": [
+    "set",
+    "get",
+    "has",
+    "key",
+    "value",
+    "object",
+    "nested",
+    "property"
+  ],
+  "homepage": "https://github.com/blakeembrey/setvalue",
+  "bugs": {
+    "url": "https://github.com/blakeembrey/setvalue/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/blakeembrey/setvalue.git"
+  },
+  "license": "Apache-2.0",
+  "author": {
+    "name": "Blake Embrey",
+    "email": "hello@blakeembrey.com",
+    "url": "http://blakeembrey.me"
+  },
+  "type": "module",
+  "exports": "./dist/index.js",
+  "typings": "./dist/index.d.ts",
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "bench": "vitest bench",
+    "build": "ts-scripts build",
+    "format": "ts-scripts format",
+    "prepare": "ts-scripts install",
+    "prepublishOnly": "npm run build",
+    "specs": "ts-scripts specs",
+    "test": "ts-scripts test"
+  },
+  "devDependencies": {
+    "@borderless/ts-scripts": "^0.15.0",
+    "@vitest/coverage-v8": "^1.0.4",
+    "ts-expect": "^1.3.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.0.4"
+  }
+}

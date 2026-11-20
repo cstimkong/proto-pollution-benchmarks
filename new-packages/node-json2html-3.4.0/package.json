@@ -1,0 +1,35 @@
+{
+  "author": {
+    "name": "Chad Brown",
+    "email": "chad.brown@crystallinetech.com",
+    "url": "https://www.json2html.com"
+  },
+  "name": "node-json2html",
+  "description": "json2html - HTML templating in pure javascript",
+  "version": "3.4.0",
+  "homepage": "https://www.json2html.com",
+  "repository": {
+    "url": "git://github.com/moappi/json2html.git"
+  },
+  "keywords": [
+    "json2html",
+    "templating",
+    "html",
+    "web",
+    "templates",
+    "json"
+  ],
+  "main": "node.json2html.js",
+  "dependencies": {},
+  "devDependencies": {
+    "mocha": "latest"
+  },
+  "optionalDependencies": {},
+  "engines": {
+    "node": "*"
+  },
+  "scripts": {
+    "test": "mocha",
+    "benchmark":"node benchmark.js"
+  }
+}

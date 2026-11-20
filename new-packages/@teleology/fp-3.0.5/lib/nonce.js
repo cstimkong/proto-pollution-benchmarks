@@ -1,0 +1,11 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.once = exports.nonce = void 0;
+/* eslint-disable no-plusplus */
+const nonce = (fn, times = 1) => {
+    let i = 0;
+    return (...args) => (i++ <= times - 1 ? fn(...args) : undefined);
+};
+exports.nonce = nonce;
+const once = (fn) => (0, exports.nonce)(fn);
+exports.once = once;

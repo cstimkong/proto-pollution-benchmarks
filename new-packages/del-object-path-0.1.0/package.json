@@ -1,0 +1,25 @@
+{
+  "name": "del-object-path",
+  "version": "0.1.0",
+  "description": "Delete given (deep) object path",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test"
+  },
+  "keywords": [
+    "object",
+    "path",
+    "change",
+    "remove",
+    "set"
+  ],
+  "repository": {
+    "url": "git@github.com:fiatjaf/del-object-path.git",
+    "type": "git"
+  },
+  "author": "fiatjaf",
+  "license": "BSD",
+  "devDependencies": {
+    "prova": "^2.1.2"
+  }
+}
